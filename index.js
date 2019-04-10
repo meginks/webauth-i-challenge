@@ -2,17 +2,40 @@ const express = require('express');
 const helmet = require('helmet'); 
 const cors = require('cors'); 
 const bcrypt = require('bcryptjs'); 
-
+const session = require('express-session');
+const KnexSessionStore = require('connect-session-knex')('session'); 
 
 const db = require('./data/dbConfig.js');
-const Users = require('./helpers.js');
+const Users = require('./users/users-router.js');
 
-const server = express();
+const server = express(); 
+
+const sessionConfig = {
+  name: 'webauth-i-challenge', 
+  secret: process.env.SECRET || 'secret', 
+  cookie: {
+    maxAge: 1000 * 60 * 60, 
+    secure: false,
+    httpOnly: true
+  }, 
+  resave: false,
+  saveUninitialized: false,
+  store: new KnexSessionStore({
+    knex: db, 
+    tablename: 'sessions',
+    sidfieldname: 'sid',
+    createtable: true,
+    clearInterval: 1000*60*10
+  })
+}
+
+const restricted = require('./restricted-middleware.js'); 
+
 
 server.use(helmet()); 
 server.use(express.json());
 server.use(cors('headers')); 
-
+server.use(session(sessionConfig));
 
 /// Registration Endpoint 
 
@@ -39,6 +62,7 @@ server.post('/api/login', (req, res) => {
       .first()
       .then(user => {
         if (user && bcrypt.compareSync(password, user.password)) {
+          req.session.user = user
           res.status(200).json({ message: `Welcome ${user.username}!` });
         } else {
           res.status(401).json({ message: 'Invalid Credentials. You shall not pass!' });
@@ -48,6 +72,22 @@ server.post('/api/login', (req, res) => {
         res.status(500).json(error);
       });
   });
+
+  // Logout Endpoint 
+
+  server.get('/api/logout', (req, res) => {
+    if (req.session) {
+      req.session.destroy(error => {
+        if (error) {
+          res.status.json({message: 'You are trapped here. Sorry.'})
+        } else {
+          res.send('Bye bye for now!')
+        }
+      })
+    } else {
+      res.status(401).json({message: `please make sure your session is working`})
+    }
+  })
 
 
   /// GET ALL USERS ENDPOINT 
